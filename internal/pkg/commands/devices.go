@@ -17,6 +17,7 @@ package commands
 
 import (
 	"context"
+  "encoding/hex"
 	"fmt"
 	"os"
 	"strconv"
@@ -30,6 +31,7 @@ import (
 	"github.com/opencord/voltha-protos/v5/go/extension"
 	"github.com/opencord/voltha-protos/v5/go/voltha"
 	"github.com/opencord/voltha-protos/v5/go/bossopenolt"
+  omcilib "github.com/opencord/bbsim/common/omci"
 )
 
 const (
@@ -152,8 +154,53 @@ Action : {{.Action}}
 Status : {{.Status}}`
 	DEFAULT_DEVICE_BOSS_GETSLICEBW_FORMAT = "table{{.DeviceId}}\t{{.Bw}}"
 	DEFAULT_DEVICE_BOSS_SLAV2_FORMAT = "table{{.DeviceId}}\t{{.OnuId}}\t{{.Tcont}}\t{{.AllocId}}\t{{.Slice}}\t{{.Bw}}\t{{.Dba}}\t{{.Type}}\t{{.Fixed}}\t{{.Assur}}\t{{.Nogur}}\t{{.Max}}\t{{.Reach}}"
-
+  DEFAULT_DEVICE_BOSS_SENDOMCI_FORMAT = `
+--------------------------------------------------------
+Send Device ID : {{.SendDeviceID}}
+Send ONU ID : {{.SendOnuID}}
+Send OMCI Data : {{.SendOmciData}}
+Send Message Type : {{.SendOmciMsgType}}
+Send Entity Class : {{.SendOmciEntCls}}
+Send Entity Instance : {{.SendOmciEntInst}}
+Send Attribute Mask : {{.SendOmciAttrMask}}
+--------------------------------------------------------
+Recv Device ID : {{.RecvDeviceID}}
+Recv ONU ID : {{.RecvOnuID}}
+Recv OMCI Data : {{.RecvOmciData}}
+Recv Message Type : {{.RecvOmciMsgType}}
+Recv Entity Class : {{.RecvOmciEntCls}}
+Recv Entity Instance : {{.RecvOmciEntInst}}
+Recv Attribute Mask : {{.RecvOmciAttrMask}}
+--------------------------------------------------------`
+  DEFAULT_DEVICE_BOSS_SENDOMCITEST_FORMAT = `
+--------------------------------------------------------
+Test Device ID : {{.SendDeviceID}}
+Test ONU ID : {{.SendOnuID}}
+Test OMCI Data : {{.SendOmciData}}
+Test Message Type : {{.SendOmciMsgType}}
+Test Entity Class : {{.SendOmciEntCls}}
+Test Entity Instance : {{.SendOmciEntInst}}
+Test Attribute Mask : {{.SendOmciAttrMask}}
+--------------------------------------------------------`
 )
+
+type DisplayOmciData struct{
+  SendDeviceID string
+  SendOnuID string
+  SendOmciData string
+  SendOmciMsgType string
+  SendOmciEntCls string
+  SendOmciEntInst string
+  SendOmciAttrMask string
+  RecvDeviceID string
+  RecvOnuID string
+  RecvOmciData string
+  RecvOmciMsgType string
+  RecvOmciEntCls string
+  RecvOmciEntInst string
+  RecvOmciAttrMask string
+}
+
 type DevOltConnect struct{
         ListOutputOptions
         Args struct{
@@ -794,7 +841,22 @@ type GetSlaV2 struct{
 	}`positional-args:"yes"`
 }
 
-
+type SendOmciData struct{
+	ListOutputOptions
+	Args struct {
+		Id DeviceId `positional-arg-name:"DEVICE_ID" required:"yes"`
+		OnuId int `positional-arg-name:"OnuId" required:"yes"`
+		OmciData string `positional-arg-name:"Omci Data" required:"yes"`
+	}`positional-args:"yes"`
+}
+type SendOmciDataTest struct{
+	ListOutputOptions
+	Args struct {
+		Id DeviceId `positional-arg-name:"DEVICE_ID" required:"yes"`
+		OnuId int `positional-arg-name:"OnuId" required:"yes"`
+		OmciData string `positional-arg-name:"Omci Data" required:"yes"`
+	}`positional-args:"yes"`
+}
 type DeviceId string
 
 type MetricName string
@@ -1257,6 +1319,10 @@ type DeviceOpts struct {
 
 	}`command:"onu"`
 	BossCommandDeviceHadler CreateDeviceHandler `command:"createDeviceHandler"`
+  BossCommandOmci struct{
+		Send_Omci_Data SendOmciData `command:"omcidata"`
+    Send_Omci_Data_Test SendOmciDataTest `command:"omcidatatest"`
+	}`command:"send"`
 }
 
 var deviceOpts = DeviceOpts{}
@@ -3166,7 +3232,7 @@ func(options *DeviceGetVlan) Execute(args []string)error{
 	}else{
 		mode="Add/Remove"
 	}
-	
+
 	tmp := GetDeviceVlan{
 		DeviceId : Bossresp.DeviceId,
 		STAG_mode : mode,
@@ -3661,7 +3727,7 @@ func(options *SetLutMode) Execute(args []string)error{
 		mode=1
 	}else{
 		fmt.Println("select normal/bypass. input data :" + options.Args.Mode)
-		return nil 
+		return nil
 	}
 	param := bossopenolt.SetDirectionMode{Direction:direct,Mode: mode}
 	requestParam := bossopenolt.ParamFields{Data:&bossopenolt.ParamFields_SetdirectiommodeParam{&param} }
@@ -4181,7 +4247,7 @@ func(options *SetQuietZone) Execute(args []string)error{
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
-	
+
 	param := bossopenolt.IntegerValue{ Value : int32(options.Args.Value)}
 	requestParam := bossopenolt.ParamFields{Data:&bossopenolt.ParamFields_IntegervalueParam{&param} }
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id), Param : &requestParam}
@@ -4387,7 +4453,7 @@ func(options *AddOnuRequest) Execute(args []string)error{
 	if orderBy == "" {
 		orderBy = GetCommandOptionWithDefault("device-ports", "order", "")
 	}
-	
+
 	tmp := AddOnu{
 		DeviceId: Bossresp.DeviceId,
 		OnuId : strconv.Itoa(int(Bossresp.OnuId)),
@@ -4413,7 +4479,7 @@ func(options *DeleteOnu) Execute(args []string)error{
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
-	
+
 	param := bossopenolt.OnuCtrl{OnuId : int32(options.Args.OnuId)}
 	requestParam := bossopenolt.ParamFields{Data:&bossopenolt.ParamFields_OnuctrlParam{&param} }
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id), Param : &requestParam}
@@ -4457,7 +4523,7 @@ func(options *AddOnuSla) Execute(args []string)error{
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
-	
+
 	param := bossopenolt.AddOnuSla{OnuId : int32(options.Args.OnuId), Tcont : int32(options.Args.Tcont), Type: int32(options.Args.Type), Si: int32(options.Args.Si), Abmin:int32(options.Args.Abmin), Absur : int32(options.Args.Absur)}
 	requestParam := bossopenolt.ParamFields{Data:&bossopenolt.ParamFields_AddonuslaParam{&param} }
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id), Param : &requestParam}
@@ -4501,7 +4567,7 @@ func(options *ClearOnuSla) Execute(args []string)error{
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
-	
+
 	param := bossopenolt.ClearOnuSla{OnuId : int32(options.Args.OnuId), Tcont : int32(options.Args.Tcont)}
 	requestParam := bossopenolt.ParamFields{Data:&bossopenolt.ParamFields_ClearonuslaParam{&param} }
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id), Param : &requestParam}
@@ -4723,7 +4789,7 @@ func(options *GetOnuVssn) Execute(args []string)error{
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
-	
+
 	param := bossopenolt.OnuCtrl{OnuId : int32(options.Args.OnuId)}
 	requestParam := bossopenolt.ParamFields{Data:&bossopenolt.ParamFields_OnuctrlParam{&param} }
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id), Param : &requestParam}
@@ -4758,7 +4824,7 @@ func(options *GetOnuDistance) Execute(args []string)error{
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
-	
+
 	param := bossopenolt.OnuCtrl{OnuId : int32(options.Args.OnuId)}
 	requestParam := bossopenolt.ParamFields{Data:&bossopenolt.ParamFields_OnuctrlParam{&param} }
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id), Param : &requestParam}
@@ -4793,7 +4859,7 @@ func(options *SetBurstDelimiter) Execute(args []string)error{
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
-	
+
 	param := bossopenolt.SetBurstDelimit{Length : int32(options.Args.Length), Delimiter : options.Args.Delimiter}
 	requestParam := bossopenolt.ParamFields{Data:&bossopenolt.ParamFields_SetburstdelimitParam{&param} }
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id), Param : &requestParam}
@@ -4836,7 +4902,7 @@ func(options *GetBurstDelimiter) Execute(args []string)error{
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
-	
+
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id)}
 	Bossresp, err := client.GetBurstDelimiter(ctx, &request)
 	if err != nil{
@@ -4914,7 +4980,7 @@ func(options *GetBurstPreamble) Execute(args []string)error{
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
-	
+
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id)}
 	Bossresp, err := client.GetBurstPreamble(ctx, &request)
 	if err != nil{
@@ -4992,7 +5058,7 @@ func(options *GetBurstVersion) Execute(args []string)error{
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
-	
+
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id)}
 	Bossresp, err := client.GetBurstVersion(ctx, &request)
 	if err != nil{
@@ -5025,7 +5091,7 @@ func(options *SetBurstProfile) Execute(args []string)error{
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
-	
+
 	param := bossopenolt.OnuCtrl{OnuId : int32(options.Args.OnuId)}
 	requestParam := bossopenolt.ParamFields{Data:&bossopenolt.ParamFields_OnuctrlParam{&param} }
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id), Param : &requestParam}
@@ -5055,7 +5121,7 @@ func(options *SetBurstProfile) Execute(args []string)error{
 		Format : format.Format(outputFormat),
 		OrderBy : orderBy,
 		Data : tmp,
-	}	
+	}
 	GenerateOutput(&result)
 	return nil;
 }
@@ -5068,7 +5134,7 @@ func(options *GetBurstProfile) Execute(args []string)error{
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
-	
+
 	param := bossopenolt.OnuCtrl{OnuId : int32(options.Args.OnuId)}
 	requestParam := bossopenolt.ParamFields{Data:&bossopenolt.ParamFields_OnuctrlParam{&param} }
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id), Param : &requestParam}
@@ -5103,7 +5169,7 @@ func(options *GetRegisterStatus) Execute(args []string)error{
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
-	
+
 	param := bossopenolt.OnuCtrl{OnuId : int32(options.Args.OnuId)}
 	requestParam := bossopenolt.ParamFields{Data:&bossopenolt.ParamFields_OnuctrlParam{&param} }
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id), Param : &requestParam}
@@ -5137,7 +5203,7 @@ func(options *GetOnuInfo) Execute(args []string)error{
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
-	
+
 	param := bossopenolt.OnuCtrl{OnuId : int32(options.Args.OnuId)}
 	requestParam := bossopenolt.ParamFields{Data:&bossopenolt.ParamFields_OnuctrlParam{&param} }
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id), Param : &requestParam}
@@ -5181,7 +5247,7 @@ func(options *GetOmciStatus) Execute(args []string)error{
 		fmt.Println("validate Error")
 		return nil
 	}
-	
+
 	param := bossopenolt.GetDirectionValue{Direction : updown}
 	requestParam := bossopenolt.ParamFields{Data:&bossopenolt.ParamFields_GetdirectionvalueParam{&param} }
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id), Param : &requestParam}
@@ -5216,7 +5282,7 @@ func(options *SetDsOmciOnu) Execute(args []string)error{
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
-	
+
 	param := bossopenolt.OnuCtrl{OnuId : int32(options.Args.OnuId)}
 	requestParam := bossopenolt.ParamFields{Data:&bossopenolt.ParamFields_OnuctrlParam{&param} }
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id), Param : &requestParam}
@@ -5260,7 +5326,7 @@ func(options *SetDsOmciData) Execute(args []string)error{
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
-	
+
 	param := bossopenolt.SetDsOmciData{Control : int32(options.Args.Control), Data : options.Args.Data}
 	requestParam := bossopenolt.ParamFields{Data:&bossopenolt.ParamFields_SetdsomcidataParam{&param} }
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id), Param : &requestParam}
@@ -5304,7 +5370,7 @@ func(options *GetUsOmciData) Execute(args []string)error{
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
-	
+
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id)}
 	Bossresp, err := client.GetUsOmciData(ctx, &request)
 	if err != nil{
@@ -5337,7 +5403,7 @@ func(options *SetTod) Execute(args []string)error{
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
-	
+
 	param := bossopenolt.SetTod{Mode : int32(options.Args.Mode), Time : int32(options.Args.Time)}
 	requestParam := bossopenolt.ParamFields{Data:&bossopenolt.ParamFields_SettodParam{&param} }
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id), Param : &requestParam}
@@ -5381,7 +5447,7 @@ func(options *GetTodRequest) Execute(args []string)error{
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
-	
+
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id)}
 	Bossresp, err := client.GetTod(ctx, &request)
 	if err != nil{
@@ -5576,7 +5642,7 @@ func(options *GetFecDecMode) Execute(args []string)error{
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
-	
+
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id)}
 	Bossresp, err := client.GetFecDecMode(ctx, &request)
 	if err != nil{
@@ -5664,7 +5730,7 @@ func(options *GetDelimiter) Execute(args []string)error{
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
-	
+
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id)}
 	Bossresp, err := client.GetDelimiter(ctx, &request)
 	if err != nil{
@@ -5741,7 +5807,7 @@ func(options *GetErrorPermit) Execute(args []string)error{
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
-	
+
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id)}
 	Bossresp, err := client.GetErrorPermit(ctx, &request)
 	if err != nil{
@@ -5836,7 +5902,7 @@ func(options *GetPmControl) Execute(args []string)error{
 	if orderBy == "" {
 		orderBy = GetCommandOptionWithDefault("device-ports", "order", "")
 	}
-	
+
 	result := CommandResult{
 		Format : format.Format(outputFormat),
 		OrderBy : orderBy,
@@ -5872,7 +5938,7 @@ func(options *GetPmTable) Execute(args []string)error{
 	if orderBy == "" {
 		orderBy = GetCommandOptionWithDefault("device-ports", "order", "")
 	}
-	
+
 	result := CommandResult{
 		Format : format.Format(outputFormat),
 		OrderBy : orderBy,
@@ -5890,7 +5956,7 @@ func(options *SetSAOn) Execute(args []string)error{
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
-	
+
 	param := bossopenolt.OnuCtrl{OnuId : int32(options.Args.OnuId)}
 	requestParam := bossopenolt.ParamFields{Data:&bossopenolt.ParamFields_OnuctrlParam{&param} }
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id), Param : &requestParam}
@@ -5935,7 +6001,7 @@ func(options *SetSAOff) Execute(args []string)error{
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
-	
+
 	param := bossopenolt.OnuCtrl{OnuId : int32(options.Args.OnuId)}
 	requestParam := bossopenolt.ParamFields{Data:&bossopenolt.ParamFields_OnuctrlParam{&param} }
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id), Param : &requestParam}
@@ -6010,7 +6076,7 @@ func(options *SetSliceBw) Execute(args []string)error{
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
-	
+
 	param := bossopenolt.SetSliceBw{Slice: int32(options.Args.Slice), Bw: int32(options.Args.Bw)}
 	requestParam := bossopenolt.ParamFields{Data:&bossopenolt.ParamFields_SetslicebwParam{&param} }
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id), Param : &requestParam}
@@ -6054,7 +6120,7 @@ func(options *GetSliceBw) Execute(args []string)error{
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
-	
+
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id)}
 	Bossresp, err := client.GetSliceBw(ctx, &request)
 	if err != nil{
@@ -6088,7 +6154,7 @@ func(options *GetSlaV2) Execute(args []string)error{
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
-	
+
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id)}
 	Bossresp, err := client.GetSlaV2(ctx, &request)
 	if err != nil{
@@ -6122,7 +6188,7 @@ func(options *SetSlaV2) Execute(args []string)error{
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
-	
+
 	param := bossopenolt.SetSlaV2{OnuId: int32(options.Args.OnuId), Tcont: int32(options.Args.Tcont), Slice : int32(options.Args.Slice), CoDba: int32(options.Args.CoDba), Type : int32(options.Args.Type), Rf: int32(options.Args.Rf), Ra: int32(options.Args.Ra), Rn : int32(options.Args.Rn)}
 	requestParam := bossopenolt.ParamFields{Data:&bossopenolt.ParamFields_Setslav2Param{&param} }
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id), Param : &requestParam}
@@ -6148,6 +6214,141 @@ func(options *SetSlaV2) Execute(args []string)error{
 	}
 	GenerateOutput(&result)
 	return nil;
+}
+
+func(options *SendOmciData) Execute(args []string)error{
+	conn,err:=NewConnection()
+	defer conn.Close()
+
+	client := bossopenolt.NewBossOpenoltClient(conn)
+  data := []byte(options.Args.OmciData)
+
+  s1, s2, err := omcilib.ParseOpenOltOmciPacket(data)
+  if err!=nil{
+    fmt.Println("Omci Parse to OpenOltPacket Error")
+    panic(err)
+  }
+  fmt.Println("----------------------------")
+  fmt.Println("Send Packet Data Information")
+  fmt.Println("Device ID : ", options.Args.Id)
+  fmt.Println("Onu ID : ", options.Args.OnuId)
+  fmt.Println("Omci Data : ", options.Args.OmciData)
+  fmt.Println("Omci Detail \n", s1)
+  fmt.Println("----------------------------")
+
+  _ = s2
+
+	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
+	defer cancel()
+  param := bossopenolt.SendOmciData{OnuId:int32(options.Args.OnuId), OmciData: options.Args.OmciData}
+	requestParam := bossopenolt.ParamFields{Data:&bossopenolt.ParamFields_SendomcidataParam{&param} }
+	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id), Param : &requestParam}
+	Bossresp, err := client.SendOmciData(ctx, &request)
+	if err != nil{
+		return err
+	}
+  fmt.Println("resp",Bossresp.OmciData)
+  data2 := []byte(Bossresp.OmciData)
+
+  r1, r2, err := omcilib.ParseOpenOltOmciPacket(data2)
+  if err!=nil{
+    fmt.Println("Recv Omci Parse to OpenOltPacket Error")
+    panic(err)
+  }
+  _ = r2
+  fmt.Println("----------------------------")
+  fmt.Println("Receive Packet Data Information")
+  fmt.Println("Device ID : ", options.Args.Id)
+  fmt.Println("Onu ID : ", options.Args.OnuId)
+  fmt.Println("Omci Data : ", options.Args.OmciData)
+  fmt.Println("Omci Detail \n", r1)
+  fmt.Println("----------------------------")
+
+	outputFormat := CharReplacer.Replace(options.Format)
+	if outputFormat == "" {
+		outputFormat = GetCommandOptionWithDefault("device-ports", "format", DEFAULT_DEVICE_BOSS_SENDOMCI_FORMAT)
+	}
+
+	orderBy := options.OrderBy
+	if orderBy == "" {
+		orderBy = GetCommandOptionWithDefault("device-ports", "order", "")
+	}
+  tmp:=DisplayOmciData{
+    SendDeviceID: string(options.Args.Id),
+    SendOnuID : string(options.Args.OnuId),
+    SendOmciData: options.Args.OmciData,
+    SendOmciMsgType : "",
+    SendOmciEntCls :"",
+    SendOmciEntInst : "",
+    SendOmciAttrMask : "",
+    RecvDeviceID : Bossresp.DeviceId,
+    RecvOnuID : string(Bossresp.OnuId),
+    RecvOmciData : Bossresp.OmciData,
+    RecvOmciMsgType : "",
+    RecvOmciEntCls : "",
+    RecvOmciEntInst : "",
+    RecvOmciAttrMask : "",
+  }
+
+	result := CommandResult{
+		Format : format.Format(outputFormat),
+		OrderBy : orderBy,
+		Data : tmp,
+	}
+  _=result
+	//GenerateOutput(&result)
+	return nil
+}
+
+func(options *SendOmciDataTest) Execute(args []string)error{
+
+  data, err := hex.DecodeString(options.Args.OmciData)
+  if err!=nil{
+    fmt.Println("Omci Decoding Error")
+    panic(err)
+  }
+  fmt.Println("Decode hex :% x", data)
+  deltaByte := []byte(options.Args.OmciData)
+  s1, s2, err := omcilib.ParseOpenOltOmciPacket(deltaByte)
+  if err!=nil{
+    fmt.Println("Omci Parse to OpenOltPacket Error")
+    panic(err)
+  }
+  fmt.Println("OmciPacket : ", s1)
+  fmt.Println("OmciMsg : ", s2)
+  outputFormat := CharReplacer.Replace(options.Format)
+	if outputFormat == "" {
+		outputFormat = GetCommandOptionWithDefault("device-ports", "format", DEFAULT_DEVICE_BOSS_SENDOMCITEST_FORMAT)
+	}
+
+	orderBy := options.OrderBy
+	if orderBy == "" {
+		orderBy = GetCommandOptionWithDefault("device-ports", "order", "")
+	}
+  tmp:=DisplayOmciData{
+    SendDeviceID: string(options.Args.Id),
+    SendOnuID : string(options.Args.OnuId),
+    SendOmciData: options.Args.OmciData,
+    SendOmciMsgType : s2.MessageType.String(),
+    SendOmciEntCls : string(s2.Payload[:]),
+    SendOmciEntInst : "",
+    SendOmciAttrMask : "",
+    RecvDeviceID : "",
+    RecvOnuID : "",
+    RecvOmciData : "",
+    RecvOmciMsgType : "",
+    RecvOmciEntCls : "",
+    RecvOmciEntInst : "",
+    RecvOmciAttrMask : "",
+  }
+
+	result := CommandResult{
+		Format : format.Format(outputFormat),
+		OrderBy : orderBy,
+		Data : tmp,
+	}
+	GenerateOutput(&result)
+	return nil
 }
 
 

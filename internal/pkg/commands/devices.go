@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+  "bufio"
 
 	"github.com/golang/protobuf/ptypes/empty"
 	flags "github.com/jessevdk/go-flags"
@@ -865,6 +866,12 @@ type SendOmciDataTest struct{
 		OmciData string `positional-arg-name:"Omci Data" required:"yes"`
 	}`positional-args:"yes"`
 }
+type OmciDataSendHistory struct{
+  ListOutputOptions
+}
+type OmciDataRecvHistory struct{
+  ListOutputOptions
+}
 type DeviceId string
 
 type MetricName string
@@ -1248,6 +1255,8 @@ type DeviceOpts struct {
 		Get_Onu_Info GetOnuInfo `command:"onu_info"`
 		BossCommandGetOmci struct {
 			Get_Omci_Status GetOmciStatus `command:"status"`
+      Send_Omci_History OmciDataSendHistory `command:"sendHistory"`
+      Recv_Omci_History OmciDataRecvHistory `command:"recvHistory"`
 		}`command:"omci"`
 		Get_Tod GetTodRequest `command:"tod"`
 		Get_Data_mod GetDataMode `command:"data_mode"`
@@ -6392,4 +6401,68 @@ func(options *SendOmciDataTest) Execute(args []string)error{
 	return nil
 }
 
+func(options *OmciDataSendHistory) Execute(args []string)error{
+  filename := "OmciSendHistory"
+  _,err := os.Stat(filename)
+  if err!=nil && os.IsNotExist(err){
+    fmt.Println("History not Exists")
+    return nil
+  }
+  data, err := os.Open("OmciSendHistory")
+  if err!=nil{
+    panic(err)
+  }
+  scanner :=bufio.NewScanner(data)
+  scanner.Split(bufio.ScanLines)
+  for scanner.Scan(){
+    strSplit:=strings.Split(scanner.Text()," ")
+    data := []byte(strSplit[2])
+    s1, _, err := omcilib.ParseOpenOltOmciPacket(data)
+    if err!=nil{
+      fmt.Println("Omci Parse to OpenOltPacket Error")
+      panic(err)
+    }
+    fmt.Println("----------------------------")
+    fmt.Println("Send Packet Data Information")
+    fmt.Println("Device ID : ", strSplit[0])
+    fmt.Println("Onu ID : ", strSplit[1])
+    fmt.Println("Omci Data : ", strSplit[2])
+    fmt.Println("Omci Detail \n", s1)
+    fmt.Println("----------------------------")
+  }
+  data.Close()
+  return nil
+}
+func(options *OmciDataRecvHistory) Execute(args []string)error{
+  filename := "OmciRecvHistory"
+  _,err := os.Stat(filename)
+  if err!=nil && os.IsNotExist(err){
+    fmt.Println("History not Exists")
+    return nil
+  }
+  data, err := os.Open("OmciRecvHistory")
+  if err!=nil{
+    panic(err)
+  }
+  scanner :=bufio.NewScanner(data)
+  scanner.Split(bufio.ScanLines)
+  for scanner.Scan(){
+    strSplit:=strings.Split(scanner.Text()," ")
+    data := []byte(strSplit[2])
+    s1, _, err := omcilib.ParseOpenOltOmciPacket(data)
+    if err!=nil{
+      fmt.Println("Omci Parse to OpenOltPacket Error")
+      panic(err)
+     }
+    fmt.Println("----------------------------")
+    fmt.Println("Send Packet Data Information")
+    fmt.Println("Device ID : ", strSplit[0])
+    fmt.Println("Onu ID : ", strSplit[1])
+    fmt.Println("Omci Data : ", strSplit[2])
+    fmt.Println("Omci Detail \n", s1)
+    fmt.Println("----------------------------")
+  }
+  data.Close()
+  return nil
+}
 

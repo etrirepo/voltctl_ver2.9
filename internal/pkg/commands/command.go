@@ -44,7 +44,6 @@ import (
 	"google.golang.org/grpc/credentials"
 	yaml "gopkg.in/yaml.v2"
 )
-
 type OutputType uint8
 
 const (

@@ -34,6 +34,13 @@ import (
   omcilib "github.com/opencord/bbsim/common/omci"
 )
 
+ //type sendOmciHistory struct{
+ //  DeviceId string
+ //  OnuId string
+ //  OmciData string
+ //}
+ //
+ //var sOmciHist = []sendOmciHistory{}
 const (
 	DEFAULT_DEVICE_FORMAT         = "table{{ .Id }}\t{{.Type}}\t{{.Root}}\t{{.ParentId}}\t{{.SerialNumber}}\t{{.AdminState}}\t{{.OperStatus}}\t{{.ConnectStatus}}\t{{.Reason}}"
 	DEFAULT_DEVICE_PORTS_FORMAT   = "table{{.PortNo}}\t{{.Label}}\t{{.Type}}\t{{.AdminState}}\t{{.OperStatus}}\t{{.DeviceId}}\t{{.Peers}}"
@@ -183,6 +190,7 @@ Test Entity Instance : {{.SendOmciEntInst}}
 Test Attribute Mask : {{.SendOmciAttrMask}}
 --------------------------------------------------------`
 )
+
 
 type DisplayOmciData struct{
   SendDeviceID string
@@ -1328,6 +1336,7 @@ type DeviceOpts struct {
 var deviceOpts = DeviceOpts{}
 
 func RegisterDeviceCommands(parser *flags.Parser) {
+  //sOmciHist = make([]sendOmciHistory,{})
 	if _, err := parser.AddCommand("device", "device commands", "Commands to query and manipulate VOLTHA devices", &deviceOpts); err != nil {
 		Error.Fatalf("Unexpected error while attempting to register device commands : %s", err)
 	}
@@ -6240,9 +6249,22 @@ func(options *SendOmciData) Execute(args []string)error{
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
+
   param := bossopenolt.SendOmciData{OnuId:int32(options.Args.OnuId), OmciData: options.Args.OmciData}
 	requestParam := bossopenolt.ParamFields{Data:&bossopenolt.ParamFields_SendomcidataParam{&param} }
 	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id), Param : &requestParam}
+
+//  sendOmci := sendOmciHistory{
+//    DeviceId : string(options.Args.Id),
+//    OnuId : string(options.Args.OnuId),
+//    OmciData : options.Args.OmciData,
+//  }
+//  sOmciHist := append(sOmciHist,sendOmci)
+//  fmt.Println("------------\n",len(sOmciHist),"\n---------")
+  err=writeHistory(1, string(options.Args.Id), string(options.Args.OnuId), options.Args.OmciData)
+  if err!=nil{
+    panic(err)
+  }
 	Bossresp, err := client.SendOmciData(ctx, &request)
 	if err != nil{
 		return err
@@ -6258,12 +6280,15 @@ func(options *SendOmciData) Execute(args []string)error{
   _ = r2
   fmt.Println("----------------------------")
   fmt.Println("Receive Packet Data Information")
-  fmt.Println("Device ID : ", options.Args.Id)
-  fmt.Println("Onu ID : ", options.Args.OnuId)
-  fmt.Println("Omci Data : ", options.Args.OmciData)
+  fmt.Println("Device ID : ", Bossresp.DeviceId)
+  fmt.Println("Onu ID : ", string(Bossresp.OnuId))
+  fmt.Println("Omci Data : ", Bossresp.OmciData)
   fmt.Println("Omci Detail \n", r1)
   fmt.Println("----------------------------")
-
+  err = writeHistory(2, Bossresp.DeviceId, string(Bossresp.OnuId), Bossresp.OmciData)
+  if err!=nil{
+    panic(err)
+  }
 	outputFormat := CharReplacer.Replace(options.Format)
 	if outputFormat == "" {
 		outputFormat = GetCommandOptionWithDefault("device-ports", "format", DEFAULT_DEVICE_BOSS_SENDOMCI_FORMAT)
@@ -6299,7 +6324,23 @@ func(options *SendOmciData) Execute(args []string)error{
 	//GenerateOutput(&result)
 	return nil
 }
-
+func writeHistory(readWrite uint, deviceId string, onuId string, omciData string) error{
+  var filename string
+  if readWrite ==1{
+    filename = "OmciSendHistory"
+  }else{
+    filename = "OmciRecvHistory"
+  }
+  f1, err :=os.OpenFile(filename, os.O_CREATE|os.O_RDWR|os.O_APPEND,os.FileMode(0644))
+  if err!=nil{
+    fmt.Println("File Create Error")
+    return err
+  }
+  defer f1.Close()
+  fileStr:=deviceId+" "+onuId+" "+omciData
+  fmt.Fprintln(f1,fileStr)
+  return nil
+}
 func(options *SendOmciDataTest) Execute(args []string)error{
 
   data, err := hex.DecodeString(options.Args.OmciData)

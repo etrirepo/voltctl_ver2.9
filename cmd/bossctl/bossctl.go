@@ -19,13 +19,14 @@ import (
 	"fmt"
 	"os"
 	"path"
+  //"common"
 
 	flags "github.com/jessevdk/go-flags"
 	"github.com/opencord/bossctl/internal/pkg/commands"
 )
 
 func main() {
-
+//  sOmciHist = make([]sendOmciHistory)
 	/*
 	 * When completion is invoked the environment variable GO_FLAG_COMPLETION
 	 * is set. The go-flags library uses this as a key to do completion when

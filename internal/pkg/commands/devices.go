@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
   "bufio"
+//  "errors"
 
 	"github.com/golang/protobuf/ptypes/empty"
 	flags "github.com/jessevdk/go-flags"
@@ -33,6 +34,9 @@ import (
 	"github.com/opencord/voltha-protos/v5/go/voltha"
 	"github.com/opencord/voltha-protos/v5/go/bossopenolt"
   omcilib "github.com/opencord/bbsim/common/omci"
+  "github.com/opencord/omci-lib-go/v2"
+  me "github.com/opencord/omci-lib-go/v2/generated"
+//  "github.com/go-errors/errors"
 )
 
  //type sendOmciHistory struct{
@@ -6252,9 +6256,12 @@ func(options *SendOmciData) Execute(args []string)error{
   fmt.Println("Onu ID : ", options.Args.OnuId)
   fmt.Println("Omci Data : ", options.Args.OmciData)
   fmt.Println("Omci Detail \n", s1)
+  if s2.MessageType == omci.SetRequestType || s2.MessageType==omci.CreateRequestType {
+    fmt.Println("SetRequestType")
+    writeAttribute(data)
+  }
   fmt.Println("----------------------------")
 
-  _ = s2
 
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
 	defer cancel()
@@ -6333,6 +6340,200 @@ func(options *SendOmciData) Execute(args []string)error{
 	//GenerateOutput(&result)
 	return nil
 }
+
+func writeAttribute(msg []byte) error{
+  pkt, omciMsg, err := omcilib.ParseOpenOltOmciPacket(msg)
+  if err!=nil{
+    panic(err)
+  }
+  if omciMsg.MessageType==omci.SetRequestType {
+    //msg := omciMsg.Data.(bbsim.OmciMssage)
+    msgObj,err1:=omcilib.ParseSetRequest(pkt)
+    if err1!=nil{
+      panic(err1)
+    }
+
+    meDefinition, _ := me.LoadManagedEntityDefinition(msgObj.EntityClass, me.ParamData{EntityID: msgObj.EntityInstance})
+//    if omciErr!=nil{
+//      panic(omciErr)
+//    }
+    for attrName := range msgObj.Attributes{
+      fmt.Println("Attributes : ")
+      attr, err :=me.GetAttributeDefinitionByName(meDefinition.GetAttributeDefinitions(), attrName)
+      if err!=nil{
+        fmt.Println("   error : ", err)
+      }else{
+        fmt.Println("   ", attrName, "(", attr,") :", msgObj.Attributes[attrName])
+      }
+    }
+    if msgObj.EntityClass ==171 && msgObj.AttributeMask==0x400{
+      fmt.Println("Received frame VLAN tagging operation table")
+      //fmt.Println(string(msg[20:52]))
+      writeExtendedVlanTable(string(msg[20:52]))
+    }
+  } else if omciMsg.MessageType==omci.CreateRequestType {
+    //msg := omciMsg.Data.(bbsim.OmciMssage)
+    msgObj,err1:=omcilib.ParseCreateRequest(pkt)
+    if err1!=nil{
+      panic(err1)
+    }
+    meDefinition, _ := me.LoadManagedEntityDefinition(msgObj.EntityClass, me.ParamData{EntityID: msgObj.EntityInstance})
+//    if omciErr!=nil{
+//      panic(omciErr)
+//    }
+    for attrName := range msgObj.Attributes{
+      fmt.Println("Attributes : ")
+      attr, err :=me.GetAttributeDefinitionByName(meDefinition.GetAttributeDefinitions(), attrName)
+      if err!=nil{
+        fmt.Println("   error : ", err)
+      }else{
+        fmt.Println("   ", attrName, "(", attr,") :", msgObj.Attributes[attrName])
+      }
+    }
+
+  }
+  return nil
+}
+func writeExtendedVlanTable(table string) error{
+  binary, err := hex.DecodeString(table)
+  if err!=nil{
+    panic(err)
+  }
+  var str string
+  str = ""
+
+  //Convert to binary string
+  for _, n := range(binary){
+    for j:=0; j<8; j++{
+      zeroOrOne := n>>(7-j)&1
+      str+= string('0'+zeroOrOne)
+    }
+  }
+
+  fmt.Println("binary : " , str)
+  fmt.Println(filterPriorty("Outer", int(binaryStringToInt(str[:4]))))
+  fmt.Println("Filter outer VID : ", binaryStringToInt(str[4:17]))
+  fmt.Println(filterTpidDei("Outer", str[17:20]))
+  fmt.Println("word 1 pad : ", binaryStringToInt(str[20:32]))
+  fmt.Println(filterPriorty("Inner", int(binaryStringToInt(str[32:36]))))
+  fmt.Println("Filter Inner VID : ", binaryStringToInt(str[36:49]))
+  fmt.Println(filterTpidDei("Inner", str[49:52]))
+  fmt.Println("word 2 pad : ", binaryStringToInt(str[52:60]))
+  fmt.Println("Filter EtherType : ", binaryStringToInt(str[60:64]))
+  if int(binaryStringToInt(str[64:66]))==3{
+    fmt.Println("Treatment, tags to remove : discard")
+  }else{
+    fmt.Println("Treatment, tags to remove : remove")
+  }
+  fmt.Println("word 3 pad : ", binaryStringToInt(str[66:76]))
+  fmt.Println(treatmentPriority("Outer", int(binaryStringToInt(str[76:80]))))
+  fmt.Println("Treatment Outer VID : ", binaryStringToInt(str[80:93]))
+  fmt.Println(treatmentTpidDei("Outer", str[93:96]))
+  fmt.Println("word 4 pad : ", binaryStringToInt(str[93:108]))
+  fmt.Println(treatmentPriority("Inner", int(binaryStringToInt(str[108:112]))))
+  fmt.Println("Treatment inner VID : ", binaryStringToInt(str[112:125]))
+  fmt.Println(treatmentTpidDei("Inner", str[125:128]))
+
+   return nil
+}
+func treatmentTpidDei(inout string, value string) string{
+  outputString := "Treatment "+inout+" TPID/DEI : "
+  switch value{
+    case "000":
+      outputString += "Copy TPID with inner tag"
+      break
+    case "001":
+      outputString += "Copy TPID with outer tag"
+      break
+    case "010":
+      outputString += "Set TPID = outer TPID, copy DEI bit from inner tag"
+      break
+    case "011":
+      outputString += "Set TPID = outer TPID, copy DEI bit from outer tag"
+      break
+    case "100":
+      outputString += "Set TPID = 0x8100"
+      break
+  }
+  return outputString
+}
+func treatmentPriority(inout string, value int) string{
+  outputString := "Treatment "+inout+" Priorty : "
+  switch value{
+    case 15:
+      outputString +="Do not add outer tag"
+      break
+    case 10 :
+      outputString +="Add outer tag, derive P-bit from DSCP"
+      break
+    case 9:
+      outputString += "Add outer tag, copy outer priority of received frame"
+      break
+    case 8:
+      outputString += "Add outer tag, and copy with inner priority of received frame"
+      break
+    case 14:
+    case 13:
+    case 12:
+    case 11:
+      break
+      default :
+      outputString +="Add outer tag, and insert priority"
+      break
+   }
+   return outputString
+}
+func filterTpidDei(inout string, value string) string{
+  outputString := "Filter "+inout+" TPID/DEI : "
+  switch value{
+    case "000":
+      outputString+= "do not filter"
+      break
+    case "100":
+      outputString += "0x8100"
+      break
+    case "101":
+      outputString += "input TPID"
+      break
+    case "110":
+      outputString += "input TPID, DEI=0"
+      break
+    case "111":
+      outputString += "input TPID, DEI=1"
+      break
+  }
+  return outputString
+}
+func filterPriorty(inout string, value int) string {
+  outputString := "Filter "+inout + " Prioriy : "
+  switch value{
+    case 15:
+      outputString += "ignore"
+      break
+    case 14:
+      outputString += "default filter"
+      break
+    case 8 :
+      outputString += "do not filter"
+      break
+    case 9:
+      break
+    default:
+      outputString += "P-bit"
+      break
+  }
+  return outputString
+}
+func binaryStringToInt(input string) int64{
+  output, err:= strconv.ParseInt(input, 2, 64)
+  if err!=nil{
+    panic(err)
+    return -65536
+  }
+  return output
+
+}
+
 func writeHistory(readWrite uint, deviceId string, onuId string, omciData string) error{
   var filename string
   if readWrite ==1{
@@ -6455,7 +6656,7 @@ func(options *OmciDataRecvHistory) Execute(args []string)error{
       panic(err)
      }
     fmt.Println("----------------------------")
-    fmt.Println("Send Packet Data Information")
+    fmt.Println("Recv Packet Data Information")
     fmt.Println("Device ID : ", strSplit[0])
     fmt.Println("Onu ID : ", strSplit[1])
     fmt.Println("Omci Data : ", strSplit[2])

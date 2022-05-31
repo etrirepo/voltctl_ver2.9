@@ -870,6 +870,17 @@ type SendOmciDataTest struct{
 		OmciData string `positional-arg-name:"Omci Data" required:"yes"`
 	}`positional-args:"yes"`
 }
+type ActivateOnu struct{
+	ListOutputOptions
+	Args struct {
+		Id DeviceId `positional-arg-name:"DEVICE_ID" required:"yes"`
+		OnuId int `positional-arg-name:"OnuId" required:"yes"`
+    IntfId int `positional-arg-name:"IntfId" required:"yes"`
+		Type string `positional-arg-name:"Type" required:"yes"`
+    Pir int `positional-arg-name:"pir" required:"yes"`
+    OmccEncrypt string `positional-arg-name:"OMCC_ENCRYPT" required:"yes"`
+	}`positional-args:"yes"`
+}
 type OmciDataSendHistory struct{
   ListOutputOptions
 }
@@ -1311,6 +1322,7 @@ type DeviceOpts struct {
 		Delete_Onu DeleteOnu `command:"onu"`
 	}`command:"deleted"`
 	BossCommandOnu struct{
+    Activate_onu ActivateOnu `command:"activate"`
 		BossCommandOnuAdd struct{
 			Add_Onu_Sla AddOnuSla `command:"sla"`
 		}`command:"add"`
@@ -1337,8 +1349,7 @@ type DeviceOpts struct {
 		BossCommandOnuDisable struct{
 			Set_Sa_Off SetSAOff `command:"sa"`
 		}`command:"disable"`
-
-	}`command:"onu"`
+  }`command:"onu"`
 	BossCommandDeviceHadler CreateDeviceHandler `command:"createDeviceHandler"`
   BossCommandOmci struct{
 		Send_Omci_Data SendOmciData `command:"omcidata"`
@@ -6058,7 +6069,6 @@ func(options *SetSAOff) Execute(args []string)error{
 	GenerateOutput(&result)
 	return nil;
 }
-
 func (options *CreateDeviceHandler) Execute(args []string) error {
 	conn, err := NewConnection()
 	if err != nil {
@@ -6089,6 +6099,7 @@ func (options *CreateDeviceHandler) Execute(args []string) error {
 	}
 	return nil
 }
+
 
 func(options *SetSliceBw) Execute(args []string)error{
 	conn,err:=NewConnection()
@@ -6666,4 +6677,40 @@ func(options *OmciDataRecvHistory) Execute(args []string)error{
   data.Close()
   return nil
 }
+func (options *ActivateOnu) Execute(args []string) error {
+  conn, err := NewConnection()
+  fmt.Println("function!!")
+  if err != nil {
+    return err
+  }
+  defer conn.Close()
+  var omccEnc bool
+  if options.Args.OmccEncrypt =="true"|| options.Args.OmccEncrypt=="True"|| options.Args.OmccEncrypt=="TRUE"{
+    omccEnc = true
+  }else if options.Args.OmccEncrypt =="false"|| options.Args.OmccEncrypt=="False"|| options.Args.OmccEncrypt=="FALSE"{
+    omccEnc = false
+  }else{
+    fmt.Println("Check Omcc Encryption!!")
+    return nil
+  }
+  if options.Args.Type !="10G" && options.Args.Type !="25G"{
+    fmt.Println("not support type")
+    return nil
+  }
+  param := voltha.ActiveOnu{DeviceId:string(options.Args.Id), OnuId: uint32(options.Args.OnuId), IntfId: uint32(options.Args.IntfId), Pir: uint32(options.Args.Pir), OmccEncryption : omccEnc, Type: options.Args.Type}
+
+  client := voltha.NewVolthaServiceClient(conn)
+
+  ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
+  defer cancel()
+  _, err = client.ActivateONU(ctx, &param)
+  if err != nil {
+    Error.Printf("Error Active Onu")
+    panic(err)
+  }
+
+
+  return nil
+}
+
 

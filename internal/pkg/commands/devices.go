@@ -862,6 +862,15 @@ type SendOmciData struct{
 		OmciData string `positional-arg-name:"Omci Data" required:"yes"`
 	}`positional-args:"yes"`
 }
+type SendOmciDatav2 struct{
+	ListOutputOptions
+	Args struct {
+		Id DeviceId `positional-arg-name:"DEVICE_ID" required:"yes"`
+    IntfId int `positional-arg-name:"IntfId" required:"yes"`
+		OnuId int `positional-arg-name:"OnuId" required:"yes"`
+		OmciData string `positional-arg-name:"Omci Data" required:"yes"`
+	}`positional-args:"yes"`
+}
 type SendOmciDataTest struct{
 	ListOutputOptions
 	Args struct {
@@ -1354,6 +1363,8 @@ type DeviceOpts struct {
   BossCommandOmci struct{
 		Send_Omci_Data SendOmciData `command:"omcidata"`
     Send_Omci_Data_Test SendOmciDataTest `command:"omcidatatest"`
+    Send_Omci_Data_v2 SendOmciDatav2 `command:"omcidatav2"`
+
 	}`command:"send"`
 }
 
@@ -6713,4 +6724,105 @@ func (options *ActivateOnu) Execute(args []string) error {
   return nil
 }
 
+func(options *SendOmciDatav2) Execute(args []string)error{
+	conn,err:=NewConnection()
+	defer conn.Close()
 
+	client := voltha.NewVolthaServiceClient(conn)
+  data := []byte(options.Args.OmciData)
+
+  s1, s2, err := omcilib.ParseOpenOltOmciPacket(data)
+  if err!=nil{
+    fmt.Println("Omci Parse to OpenOltPacket Error")
+    panic(err)
+  }
+  fmt.Println("----------------------------")
+  fmt.Println("Send Packet Data Information")
+  fmt.Println("Device ID : ", options.Args.Id)
+  fmt.Println("Onu ID : ", options.Args.OnuId)
+  fmt.Println("Omci Data : ", options.Args.OmciData)
+  fmt.Println("Omci Detail \n", s1)
+  if s2.MessageType == omci.SetRequestType || s2.MessageType==omci.CreateRequestType {
+    fmt.Println("SetRequestType")
+    writeAttribute(data)
+  }
+  fmt.Println("----------------------------")
+
+
+	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
+	defer cancel()
+//
+//  param := bossopenolt.SendOmciData{OnuId:int32(options.Args.OnuId), OmciData: options.Args.OmciData}
+//	requestParam := bossopenolt.ParamFields{Data:&bossopenolt.ParamFields_SendomcidataParam{&param} }
+  request := voltha.OmciDatav2{DeviceId:string(options.Args.Id), IntfId:uint32(options.Args.IntfId), OnuId:uint32(options.Args.OnuId), Pkt:string(options.Args.OmciData)}
+
+//  sendOmci := sendOmciHistory{
+//    DeviceId : string(options.Args.Id),
+//    OnuId : string(options.Args.OnuId),
+//    OmciData : options.Args.OmciData,
+//  }
+//  sOmciHist := append(sOmciHist,sendOmci)
+//  fmt.Println("------------\n",len(sOmciHist),"\n---------")
+  err=writeHistory(1, string(options.Args.Id), string(options.Args.OnuId), options.Args.OmciData)
+  if err!=nil{
+    panic(err)
+  }
+	_, err = client.SendOmciDatav2(ctx, &request)
+	if err != nil{
+		return err
+	}
+//  fmt.Println("resp",Bossresp.OmciData)
+//  data2 := []byte(Bossresp.OmciData)
+//
+//  r1, r2, err := omcilib.ParseOpenOltOmciPacket(data2)
+//  if err!=nil{
+//    fmt.Println("Recv Omci Parse to OpenOltPacket Error")
+//    panic(err)
+//  }
+//  _ = r2
+//  fmt.Println("----------------------------")
+//  fmt.Println("Receive Packet Data Information")
+//  fmt.Println("Device ID : ", Bossresp.DeviceId)
+//  fmt.Println("Onu ID : ", string(Bossresp.OnuId))
+//  fmt.Println("Omci Data : ", Bossresp.OmciData)
+//  fmt.Println("Omci Detail \n", r1)
+//  fmt.Println("----------------------------")
+//  err = writeHistory(2, Bossresp.DeviceId, string(Bossresp.OnuId), Bossresp.OmciData)
+//  if err!=nil{
+//    panic(err)
+//  }
+//	outputFormat := CharReplacer.Replace(options.Format)
+//	if outputFormat == "" {
+//		outputFormat = GetCommandOptionWithDefault("device-ports", "format", DEFAULT_DEVICE_BOSS_SENDOMCI_FORMAT)
+//	}
+//
+//	orderBy := options.OrderBy
+//	if orderBy == "" {
+//		orderBy = GetCommandOptionWithDefault("device-ports", "order", "")
+//	}
+//  tmp:=DisplayOmciData{
+//    SendDeviceID: string(options.Args.Id),
+//    SendOnuID : string(options.Args.OnuId),
+//    SendOmciData: options.Args.OmciData,
+//    SendOmciMsgType : "",
+//    SendOmciEntCls :"",
+//    SendOmciEntInst : "",
+//    SendOmciAttrMask : "",
+//    RecvDeviceID : Bossresp.DeviceId,
+//    RecvOnuID : string(Bossresp.OnuId),
+//    RecvOmciData : Bossresp.OmciData,
+//    RecvOmciMsgType : "",
+//    RecvOmciEntCls : "",
+//    RecvOmciEntInst : "",
+//    RecvOmciAttrMask : "",
+//  }
+//
+//	result := CommandResult{
+//		Format : format.Format(outputFormat),
+//		OrderBy : orderBy,
+//		Data : tmp,
+//	}
+//  _=result
+	//GenerateOutput(&result)
+	return nil
+}

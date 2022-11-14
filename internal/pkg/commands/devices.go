@@ -6218,7 +6218,7 @@ func(options *GetSlaV2) Execute(args []string)error{
 	result := CommandResult{
 		Format : format.Format(outputFormat),
 		OrderBy : orderBy,
-		Data : Bossresp,
+		Data : Bossresp.Resp,
 	}
 	GenerateOutput(&result)
 	return nil;
@@ -6254,7 +6254,7 @@ func(options *SetSlaV2) Execute(args []string)error{
 	result := CommandResult{
 		Format : format.Format(outputFormat),
 		OrderBy : orderBy,
-		Data : Bossresp,
+		Data : Bossresp.Resp,
 	}
 	GenerateOutput(&result)
 	return nil;

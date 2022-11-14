@@ -17,7 +17,7 @@ package commands
 
 import (
 	"context"
-
+  "fmt"
 	"github.com/golang/protobuf/ptypes/empty"
 	flags "github.com/jessevdk/go-flags"
 	"github.com/opencord/bossctl/pkg/format"
@@ -27,14 +27,24 @@ import (
 
 const (
 	DEFAULT_OUTPUT_FORMAT = "table{{ .Id }}\t{{ .Vendor }}\t{{ .Type }}\t{{ .Endpoint }}\t{{ .Version }}\t{{ .CurrentReplica }}\t{{ .TotalReplicas }}\t{{ gosince .LastCommunication}}"
+  ETCD_OUTPUT_FORMAT =`
+  ETCD_GET_VALUE_VERSION1 : {{.ver1}}
+  ETCD_GET_VALUE_VERSION2 : {{.ver2}}
+  `
 )
 
 type AdapterList struct {
 	ListOutputOptions
 }
-
+type etcdList struct {
+	ListOutputOptions
+  Args struct {
+		Ids []DeviceId `positional-arg-name:"DEVICE_ID" required:"yes"`
+	}`positional-args:"yes"`
+}
 type AdapterOpts struct {
 	List AdapterList `command:"list"`
+  EtcdList etcdList `command:"etcdList"`
 }
 
 var adapterOpts = AdapterOpts{}
@@ -91,5 +101,43 @@ func (options *AdapterList) Execute(args []string) error {
 	}
 	GenerateOutput(&result)
 
+	return nil
+}
+func (options *etcdList) Execute(args []string) error {
+	conn, err := NewConnection()
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := voltha.NewVolthaServiceClient(conn)
+
+	var lastErr error
+	for _, i := range options.Args.Ids {
+		ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
+		defer cancel()
+
+		id := voltha.ID{Id: string(i)}
+
+		returnEtcd, err := client.GetEtcdList(ctx, &id)
+		if err != nil {
+			Error.Printf("Error while enabling '%s': %s\n", i, err)
+			lastErr = err
+			continue
+		}
+    fmt.Println(returnEtcd)
+//    outputFormat := GetCommandOptionWithDefault("device-ports", "format", ETCD_OUTPUT_FORMAT)
+//    orderBy := GetCommandOptionWithDefault("device-ports", "order", "")
+//    result := CommandResult{
+//		  Format : format.Format(outputFormat),
+//		  OrderBy : orderBy,
+//		  Data : returnEtcd,
+//	  }
+//	GenerateOutput(&result)
+	}
+
+	if lastErr != nil {
+		return NoReportErr
+	}
 	return nil
 }

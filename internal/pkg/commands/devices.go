@@ -194,6 +194,8 @@ Test Entity Class : {{.SendOmciEntCls}}
 Test Entity Instance : {{.SendOmciEntInst}}
 Test Attribute Mask : {{.SendOmciAttrMask}}
 --------------------------------------------------------`
+  DEFAULT_DEVICE_BOSS_RESULT_FORMAT = "table{{.DeviceId}}\t{{.Result}}"
+
 )
 
 
@@ -890,6 +892,19 @@ type ActivateOnu struct{
     OmccEncrypt string `positional-arg-name:"OMCC_ENCRYPT" required:"yes"`
 	}`positional-args:"yes"`
 }
+
+type GetPktInd struct{
+	ListOutputOptions
+	Args struct {
+		Id DeviceId `positional-arg-name:"DEVICE_ID" required:"yes"`
+		OnuId int `positional-arg-name:"OnuId" required:"yes"`
+    IntfId int `positional-arg-name:"IntfId" required:"yes"`
+		UniId int `positional-arg-name:"UniId" required:"yes"`
+ 		GemPortId int `positional-arg-name:"GemPortId" required:"yes"`
+		PortNo int `positional-arg-name:"PortNo" required:"yes"`
+		UniSrcMac string `positional-arg-name:"UniSrcMac" required:"yes"`
+	}`positional-args:"yes"`
+}
 type OmciDataSendHistory struct{
   ListOutputOptions
 }
@@ -1292,6 +1307,7 @@ type DeviceOpts struct {
 		}`command:"usomci"`
 		Get_Slice_Bw GetSliceBw `command:"slice_bw"`
 		Get_Sla2_Table GetSlaV2 `command:"sla2_table"`
+    Get_Pkt_Ind GetPktInd `command:"pkt_ind"`
 	} `command:"get"`
 	BossCommandPmd struct{
 		Set SetPmdTxDis `command:"set"`
@@ -6826,3 +6842,39 @@ func(options *SendOmciDatav2) Execute(args []string)error{
 	//GenerateOutput(&result)
 	return nil
 }
+func(options *GetPktInd) Execute(args []string)error{
+	conn,err:=NewConnection()
+	defer conn.Close()
+
+	client := bossopenolt.NewBossOpenoltClient(conn)
+
+	ctx, cancel := context.WithTimeout(context.Background(), GlobalConfig.Current().Grpc.Timeout)
+	defer cancel()
+
+	param := bossopenolt.GetPktInd{OnuId: int32(options.Args.OnuId), IntfId: int32(options.Args.IntfId), UniId : int32(options.Args.UniId), GemportId: int32(options.Args.GemPortId), PortNo : int32(options.Args.PortNo), UniSrcmac: options.Args.UniSrcMac }
+	requestParam := bossopenolt.ParamFields{Data:&bossopenolt.ParamFields_GetpktindParam{&param} }
+	request := bossopenolt.BossRequest{DeviceId:string(options.Args.Id), Param : &requestParam}
+	Bossresp, err := client.GetPktInd(ctx, &request)
+	if err != nil{
+		return err
+	}
+
+	outputFormat := CharReplacer.Replace(options.Format)
+	if outputFormat == "" {
+		outputFormat = GetCommandOptionWithDefault("device-ports", "format", DEFAULT_DEVICE_BOSS_RESULT_FORMAT)
+	}
+
+	orderBy := options.OrderBy
+	if orderBy == "" {
+		orderBy = GetCommandOptionWithDefault("device-ports", "order", "")
+	}
+
+	result := CommandResult{
+		Format : format.Format(outputFormat),
+		OrderBy : orderBy,
+		Data : Bossresp,
+	}
+	GenerateOutput(&result)
+	return nil;
+}
+
